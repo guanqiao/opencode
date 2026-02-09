@@ -2,7 +2,7 @@
 
 本文档介绍如何在受限且被监控的网络环境中部署和运行 OpenCode，避免运行时从网络下载资源。
 
-**版本**: 1.1.0  
+**版本**: 1.2.0  
 **更新日期**: 2026-02-10
 
 ---
@@ -15,7 +15,7 @@
 - [Parser 查询文件配置](#parser-查询文件配置)
 - [模型 API 配置](#模型-api-配置)
   - [使用自定义 Provider](#使用自定义-provider)
-  - [使用简化 LLM 配置](#使用简化-llm-配置)
+  - [使用简化 LLM 配置（推荐）](#使用简化-llm-配置推荐)
   - [Ollama 本地模型配置](#ollama-本地模型配置)
   - [Privatemode AI 配置](#privatemode-ai-配置)
 - [环境变量配置](#环境变量配置)
@@ -205,7 +205,7 @@ OpenCode 支持多种方式配置本地或内部 LLM 服务：
 - `options.apiKey`: API 密钥（本地模型可设为 "not-needed"）
 - `options.baseURL`: 本地模型服务端点
 
-### 使用简化 LLM 配置
+### 使用简化 LLM 配置（推荐）
 
 对于简单的本地模型配置，可以使用 `llm` 数组（推荐用于离线环境）：
 
@@ -214,26 +214,48 @@ OpenCode 支持多种方式配置本地或内部 LLM 服务：
   "$schema": "https://opencode.ai/config.json",
   "llm": [
     {
-      "provider": "ollama",
+      "name": "Ollama Local",
+      "endpoint": "http://localhost:11434/v1",
+      "apiKey": "ollama",
       "model": "qwen2.5-coder:14b",
-      "baseURL": "http://localhost:11434/v1",
-      "apiKey": "ollama"
+      "caCert": "~/.config/opencode/certs/ca.crt"
     },
     {
-      "provider": "openai-compatible",
+      "name": "Internal LLM",
+      "endpoint": "http://internal-llm-server:8080/v1",
+      "apiKey": "{env:INTERNAL_API_KEY}",
       "model": "deepseek-coder",
-      "baseURL": "http://internal-llm-server:8080/v1",
-      "apiKey": "{env:INTERNAL_API_KEY}"
+      "caCert": "/etc/ssl/certs/internal-ca.crt"
     }
   ]
 }
 ```
 
 **配置说明**：
-- `provider`: 提供商类型（`ollama`, `openai-compatible` 等）
-- `model`: 模型名称
-- `baseURL`: 本地 API 端点
-- `apiKey`: API 密钥，支持环境变量引用 `{env:VAR_NAME}`
+- `name`: 配置显示名称（必填，用于标识此配置）
+- `endpoint`: API 端点 URL（必填）
+- `apiKey`: API 密钥（必填，支持环境变量引用 `{env:VAR_NAME}`）
+- `model`: 模型名称（必填）
+- `caCert`: CA 证书路径（**必填**，支持 `~` 展开为用户主目录）
+
+**⚠️ 重要提示**：`caCert` 是必需字段，OpenCode 会使用此证书验证 LLM 服务的 TLS 连接。如果服务使用自签名证书，请将证书文件路径配置在此字段。
+
+**生成自签名证书示例**：
+
+```bash
+# 创建证书目录
+mkdir -p ~/.config/opencode/certs
+
+# 生成自签名证书（用于本地测试）
+openssl req -x509 -newkey rsa:4096 \
+  -keyout ~/.config/opencode/certs/ca.key \
+  -out ~/.config/opencode/certs/ca.crt \
+  -days 365 -nodes \
+  -subj "/C=CN/ST=Beijing/L=Beijing/O=MyOrg/CN=localhost"
+
+# 如果使用内部 CA，复制 CA 证书到该目录
+cp /path/to/internal-ca.crt ~/.config/opencode/certs/
+```
 
 ### Ollama 本地模型配置
 
@@ -242,36 +264,15 @@ OpenCode 支持多种方式配置本地或内部 LLM 服务：
 ```json
 {
   "$schema": "https://opencode.ai/config.json",
-  "provider": {
-    "ollama-local": {
-      "name": "Ollama Local",
-      "npm": "@ai-sdk/openai-compatible",
-      "env": [],
-      "models": {
-        "qwen2.5-coder": {
-          "name": "Qwen2.5 Coder 14B",
-          "tool_call": true,
-          "limit": {
-            "context": 32768,
-            "output": 8192
-          }
-        },
-        "llama3.1": {
-          "name": "Llama 3.1",
-          "tool_call": true,
-          "limit": {
-            "context": 128000,
-            "output": 4096
-          }
-        }
-      },
-      "options": {
-        "apiKey": "ollama",
-        "baseURL": "http://localhost:11434/v1"
-      }
+  "llm": [
+    {
+      "name": "Ollama Qwen",
+      "endpoint": "http://localhost:11434/v1",
+      "apiKey": "ollama",
+      "model": "qwen2.5-coder:14b",
+      "caCert": "~/.config/opencode/certs/ca.crt"
     }
-  },
-  "model": "ollama-local:qwen2.5-coder"
+  ]
 }
 ```
 
@@ -299,6 +300,13 @@ OpenCode 支持多种方式配置本地或内部 LLM 服务：
    tar -xzf ollama-models.tar.gz -C ~/
    ```
 
+4. 配置 Ollama 允许跨域访问（如需）：
+   ```bash
+   export OLLAMA_ORIGINS="*"
+   export OLLAMA_HOST="0.0.0.0:11434"
+   ollama serve
+   ```
+
 ### Privatemode AI 配置
 
 如果使用 Privatemode AI 作为内部模型服务：
@@ -306,31 +314,15 @@ OpenCode 支持多种方式配置本地或内部 LLM 服务：
 ```json
 {
   "$schema": "https://opencode.ai/config.json",
-  "provider": {
-    "privatemode": {
+  "llm": [
+    {
       "name": "Privatemode AI",
-      "npm": "@ai-sdk/openai-compatible",
-      "env": [
-        "PRIVATEMODE_API_KEY",
-        "PRIVATEMODE_ENDPOINT"
-      ],
-      "models": {
-        "qwen3-coder-30b-a3b": {
-          "name": "Qwen3-Coder 30B-A3B",
-          "tool_call": true,
-          "limit": {
-            "context": 128000,
-            "output": 32768
-          }
-        }
-      },
-      "options": {
-        "apiKey": "{env:PRIVATEMODE_API_KEY}",
-        "baseURL": "{env:PRIVATEMODE_ENDPOINT}"
-      }
+      "endpoint": "{env:PRIVATEMODE_ENDPOINT}",
+      "apiKey": "{env:PRIVATEMODE_API_KEY}",
+      "model": "qwen3-coder-30b-a3b",
+      "caCert": "/etc/ssl/certs/privatemode-ca.crt"
     }
-  },
-  "model": "privatemode:qwen3-coder-30b-a3b"
+  ]
 }
 ```
 
@@ -378,8 +370,8 @@ export OPENCODE_TEST_HOME=/path/to/lsp-storage
 export OLLAMA_HOST="http://localhost:11434"
 
 # 自定义本地模型
-export LOCAL_LLM_API_KEY="your-api-key"
-export LOCAL_LLM_ENDPOINT="http://localhost:8080/v1"
+export INTERNAL_API_KEY="your-api-key"
+export INTERNAL_ENDPOINT="http://localhost:8080/v1"
 
 # Privatemode AI
 export PRIVATEMODE_API_KEY="your-api-key"
@@ -405,10 +397,11 @@ export PRIVATEMODE_ENDPOINT="http://privatemode-server:8080/v1"
   },
   "llm": [
     {
-      "provider": "ollama",
+      "name": "Ollama Local",
+      "endpoint": "http://localhost:11434/v1",
+      "apiKey": "ollama",
       "model": "qwen2.5-coder:14b",
-      "baseURL": "http://localhost:11434/v1",
-      "apiKey": "ollama"
+      "caCert": "~/.config/opencode/certs/ca.crt"
     }
   ]
 }
@@ -456,23 +449,20 @@ export PRIVATEMODE_ENDPOINT="http://privatemode-server:8080/v1"
   "$schema": "./config.json",
   "llm": [
     {
-      "provider": "ollama",
+      "name": "Primary Ollama",
+      "endpoint": "http://localhost:11434/v1",
+      "apiKey": "ollama",
       "model": "qwen2.5-coder:14b",
-      "baseURL": "http://localhost:11434/v1",
-      "apiKey": "ollama"
+      "caCert": "~/.config/opencode/certs/ca.crt"
     },
     {
-      "provider": "openai-compatible",
+      "name": "Backup Internal LLM",
+      "endpoint": "http://backup-llm.corp.local:8080/v1",
+      "apiKey": "{env:BACKUP_API_KEY}",
       "model": "backup-model",
-      "baseURL": "http://backup-llm.corp.local:8080/v1",
-      "apiKey": "{env:BACKUP_API_KEY}"
+      "caCert": "/etc/ssl/certs/backup-ca.crt"
     }
-  ],
-  "agent": {
-    "default": {
-      "model": "ollama:qwen2.5-coder:14b"
-    }
-  }
+  ]
 }
 ```
 
@@ -494,6 +484,7 @@ export OLLAMA_HOST="http://localhost:11434"
 
 # 4. 配置内部 LLM API 密钥（如果使用）
 export INTERNAL_API_KEY="your-internal-key"
+export INTERNAL_ENDPOINT="http://internal-llm:8080/v1"
 
 # 5. 启动 OpenCode
 opencode "$@"
@@ -515,6 +506,7 @@ $env:OLLAMA_HOST = "http://localhost:11434"
 
 # 4. 配置内部 LLM API 密钥
 $env:INTERNAL_API_KEY = "your-internal-key"
+$env:INTERNAL_ENDPOINT = "http://internal-llm:8080/v1"
 
 # 5. 启动 OpenCode
 opencode $args
@@ -563,12 +555,18 @@ opencode $args
    echo $INTERNAL_API_KEY
    ```
 
-3. 查看 OpenCode 日志
+3. 检查 CA 证书文件是否存在
+   ```bash
+   ls -la ~/.config/opencode/certs/
+   cat ~/.config/opencode/certs/ca.crt
+   ```
+
+4. 查看 OpenCode 日志
    ```bash
    opencode --print-logs --log-level DEBUG
    ```
 
-4. 验证模型配置格式
+5. 验证模型配置格式
    ```bash
    opencode config validate
    ```
@@ -586,6 +584,48 @@ opencode $args
    ```
 
 3. 检查防火墙设置（确保端口 11434 可访问）
+
+4. 检查 CA 证书配置（如果使用 HTTPS）
+   ```bash
+   # 对于 HTTP 连接，可以创建一个空的 CA 文件
+   # 或者使用系统默认 CA 证书
+   echo "" > ~/.config/opencode/certs/ca.crt
+   ```
+
+### CA 证书错误
+
+如果遇到 CA 证书相关错误：
+
+1. **证书路径不存在**
+   ```bash
+   # 确保证书目录存在
+   mkdir -p ~/.config/opencode/certs
+   ```
+
+2. **自签名证书问题**
+   ```bash
+   # 生成自签名证书
+   openssl req -x509 -newkey rsa:4096 \
+     -keyout ~/.config/opencode/certs/ca.key \
+     -out ~/.config/opencode/certs/ca.crt \
+     -days 365 -nodes \
+     -subj "/CN=localhost"
+   ```
+
+3. **使用系统 CA 证书**
+   ```json
+   {
+     "llm": [
+       {
+         "name": "Local LLM",
+         "endpoint": "http://localhost:8080/v1",
+         "apiKey": "key",
+         "model": "model-name",
+         "caCert": "/etc/ssl/certs/ca-certificates.crt"
+       }
+     ]
+   }
+   ```
 
 ---
 
