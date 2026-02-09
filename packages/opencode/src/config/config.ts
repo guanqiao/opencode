@@ -65,10 +65,8 @@ export namespace Config {
   }
 
   export const state = Instance.state(async () => {
-    const auth = await Auth.all()
-
     // Config loading order (low -> high precedence): https://opencode.ai/docs/config#precedence-order
-    // 1) Remote .well-known/opencode (org defaults)
+    // 1) Local well-known configs (~/.config/opencode/wellknown/*.json)
     // 2) Global config (~/.config/opencode/opencode.json{,c})
     // 3) Custom config (OPENCODE_CONFIG)
     // 4) Project config (opencode.json{,c})
@@ -76,23 +74,21 @@ export namespace Config {
     // 6) Inline config (OPENCODE_CONFIG_CONTENT)
     // Managed config directory is enterprise-only and always overrides everything above.
     let result: Info = {}
-    for (const [key, value] of Object.entries(auth)) {
-      if (value.type === "wellknown") {
-        process.env[value.key] = value.token
-        log.debug("fetching remote config", { url: `${key}/.well-known/opencode` })
-        const response = await fetch(`${key}/.well-known/opencode`)
-        if (!response.ok) {
-          throw new Error(`failed to fetch remote config from ${key}: ${response.status}`)
+
+    // Load local well-known configs from ~/.config/opencode/wellknown/
+    const wellknownDir = path.join(Global.Path.config, "wellknown")
+    if (existsSync(wellknownDir)) {
+      const files = await fs.readdir(wellknownDir).catch(() => [])
+      for (const file of files) {
+        if (file.endsWith(".json")) {
+          const filepath = path.join(wellknownDir, file)
+          log.debug("loading local well-known config", { path: filepath })
+          const config = await loadFile(filepath)
+          if (Object.keys(config).length > 0) {
+            result = mergeConfigConcatArrays(result, config)
+            log.debug("loaded local well-known config", { file })
+          }
         }
-        const wellknown = (await response.json()) as any
-        const remoteConfig = wellknown.config ?? {}
-        // Add $schema to prevent load() from trying to write back to a non-existent file
-        if (!remoteConfig.$schema) remoteConfig.$schema = "https://opencode.ai/config.json"
-        result = mergeConfigConcatArrays(
-          result,
-          await load(JSON.stringify(remoteConfig), `${key}/.well-known/opencode`),
-        )
-        log.debug("loaded remote config from well-known", { url: key })
       }
     }
 
@@ -541,46 +537,7 @@ export namespace Config {
       ref: "McpLocalConfig",
     })
 
-  export const McpOAuth = z
-    .object({
-      clientId: z
-        .string()
-        .optional()
-        .describe("OAuth client ID. If not provided, dynamic client registration (RFC 7591) will be attempted."),
-      clientSecret: z.string().optional().describe("OAuth client secret (if required by the authorization server)"),
-      scope: z.string().optional().describe("OAuth scopes to request during authorization"),
-    })
-    .strict()
-    .meta({
-      ref: "McpOAuthConfig",
-    })
-  export type McpOAuth = z.infer<typeof McpOAuth>
-
-  export const McpRemote = z
-    .object({
-      type: z.literal("remote").describe("Type of MCP server connection"),
-      url: z.string().describe("URL of the remote MCP server"),
-      enabled: z.boolean().optional().describe("Enable or disable the MCP server on startup"),
-      headers: z.record(z.string(), z.string()).optional().describe("Headers to send with the request"),
-      oauth: z
-        .union([McpOAuth, z.literal(false)])
-        .optional()
-        .describe(
-          "OAuth authentication configuration for the MCP server. Set to false to disable OAuth auto-detection.",
-        ),
-      timeout: z
-        .number()
-        .int()
-        .positive()
-        .optional()
-        .describe("Timeout in ms for MCP server requests. Defaults to 5000 (5 seconds) if not specified."),
-    })
-    .strict()
-    .meta({
-      ref: "McpRemoteConfig",
-    })
-
-  export const Mcp = z.discriminatedUnion("type", [McpLocal, McpRemote])
+  export const Mcp = McpLocal
   export type Mcp = z.infer<typeof Mcp>
 
   export const PermissionAction = z.enum(["ask", "allow", "deny"]).meta({
