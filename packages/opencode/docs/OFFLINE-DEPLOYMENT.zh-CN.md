@@ -2,7 +2,7 @@
 
 本文档介绍如何在受限且被监控的网络环境中部署和运行 OpenCode，避免运行时从网络下载资源。
 
-**版本**: 1.0.0  
+**版本**: 1.1.0  
 **更新日期**: 2026-02-10
 
 ---
@@ -14,8 +14,13 @@
 - [LSP 服务器离线安装](#lsp-服务器离线安装)
 - [Parser 查询文件配置](#parser-查询文件配置)
 - [模型 API 配置](#模型-api-配置)
+  - [使用自定义 Provider](#使用自定义-provider)
+  - [使用简化 LLM 配置](#使用简化-llm-配置)
+  - [Ollama 本地模型配置](#ollama-本地模型配置)
+  - [Privatemode AI 配置](#privatemode-ai-配置)
 - [环境变量配置](#环境变量配置)
 - [完整配置示例](#完整配置示例)
+- [故障排除](#故障排除)
 
 ---
 
@@ -155,35 +160,184 @@ highlights: [
 
 ## 模型 API 配置
 
-### 使用本地模型服务
+OpenCode 支持多种方式配置本地或内部 LLM 服务：
 
-在 `opencode.json` 中配置本地 OpenAI 兼容 API：
+### 使用自定义 Provider
+
+在 `opencode.json` 中使用 `provider` 字段配置自定义模型提供商：
 
 ```json
 {
+  "$schema": "https://opencode.ai/config.json",
   "provider": {
-    "local": {
-      "api": "http://your-internal-llm-server:8080/v1",
-      "key": "your-api-key"
+    "my-local-llm": {
+      "name": "My Local LLM",
+      "npm": "@ai-sdk/openai-compatible",
+      "env": [],
+      "models": {
+        "llama-3": {
+          "name": "Llama 3",
+          "tool_call": true,
+          "limit": {
+            "context": 8192,
+            "output": 2048
+          }
+        }
+      },
+      "options": {
+        "apiKey": "not-needed",
+        "baseURL": "http://localhost:11434/v1"
+      }
     }
   },
-  "model": "local:your-model-name"
+  "model": "my-local-llm:llama-3"
 }
 ```
 
-### 配置本地模型列表
+**配置说明**：
+- `name`: 提供商显示名称
+- `npm`: 使用的 AI SDK 包（通常为 `@ai-sdk/openai-compatible`）
+- `env`: 需要的环境变量列表
+- `models`: 模型列表配置
+  - `tool_call`: 是否支持工具调用
+  - `limit.context`: 上下文长度限制
+  - `limit.output`: 输出长度限制
+- `options.apiKey`: API 密钥（本地模型可设为 "not-needed"）
+- `options.baseURL`: 本地模型服务端点
 
-创建本地 `models.json` 文件：
+### 使用简化 LLM 配置
+
+对于简单的本地模型配置，可以使用 `llm` 数组（推荐用于离线环境）：
 
 ```json
 {
-  "local-llm": {
-    "id": "local-llm",
-    "name": "Local LLM",
-    "api": "http://your-internal-llm-server:8080/v1",
-    "doc": "http://internal-docs/llm"
-  }
+  "$schema": "https://opencode.ai/config.json",
+  "llm": [
+    {
+      "provider": "ollama",
+      "model": "qwen2.5-coder:14b",
+      "baseURL": "http://localhost:11434/v1",
+      "apiKey": "ollama"
+    },
+    {
+      "provider": "openai-compatible",
+      "model": "deepseek-coder",
+      "baseURL": "http://internal-llm-server:8080/v1",
+      "apiKey": "{env:INTERNAL_API_KEY}"
+    }
+  ]
 }
+```
+
+**配置说明**：
+- `provider`: 提供商类型（`ollama`, `openai-compatible` 等）
+- `model`: 模型名称
+- `baseURL`: 本地 API 端点
+- `apiKey`: API 密钥，支持环境变量引用 `{env:VAR_NAME}`
+
+### Ollama 本地模型配置
+
+如果使用 Ollama 作为本地模型服务：
+
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "provider": {
+    "ollama-local": {
+      "name": "Ollama Local",
+      "npm": "@ai-sdk/openai-compatible",
+      "env": [],
+      "models": {
+        "qwen2.5-coder": {
+          "name": "Qwen2.5 Coder 14B",
+          "tool_call": true,
+          "limit": {
+            "context": 32768,
+            "output": 8192
+          }
+        },
+        "llama3.1": {
+          "name": "Llama 3.1",
+          "tool_call": true,
+          "limit": {
+            "context": 128000,
+            "output": 4096
+          }
+        }
+      },
+      "options": {
+        "apiKey": "ollama",
+        "baseURL": "http://localhost:11434/v1"
+      }
+    }
+  },
+  "model": "ollama-local:qwen2.5-coder"
+}
+```
+
+**Ollama 离线部署步骤**：
+
+1. 在可联网机器下载模型：
+   ```bash
+   ollama pull qwen2.5-coder:14b
+   ollama pull llama3.1
+   ```
+
+2. 导出模型（可选）：
+   ```bash
+   # 找到模型存储位置
+   # Linux/macOS: ~/.ollama/models/
+   # Windows: C:\Users\<username>\.ollama\models\
+   
+   # 打包模型
+   tar -czf ollama-models.tar.gz ~/.ollama/models/
+   ```
+
+3. 在内网机器导入：
+   ```bash
+   # 解压到对应目录
+   tar -xzf ollama-models.tar.gz -C ~/
+   ```
+
+### Privatemode AI 配置
+
+如果使用 Privatemode AI 作为内部模型服务：
+
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "provider": {
+    "privatemode": {
+      "name": "Privatemode AI",
+      "npm": "@ai-sdk/openai-compatible",
+      "env": [
+        "PRIVATEMODE_API_KEY",
+        "PRIVATEMODE_ENDPOINT"
+      ],
+      "models": {
+        "qwen3-coder-30b-a3b": {
+          "name": "Qwen3-Coder 30B-A3B",
+          "tool_call": true,
+          "limit": {
+            "context": 128000,
+            "output": 32768
+          }
+        }
+      },
+      "options": {
+        "apiKey": "{env:PRIVATEMODE_API_KEY}",
+        "baseURL": "{env:PRIVATEMODE_ENDPOINT}"
+      }
+    }
+  },
+  "model": "privatemode:qwen3-coder-30b-a3b"
+}
+```
+
+**环境变量配置**：
+```bash
+export PRIVATEMODE_API_KEY="your-api-key"
+export PRIVATEMODE_ENDPOINT="http://your-privatemode-server:8080/v1"
 ```
 
 ---
@@ -217,42 +371,108 @@ export NPM_CONFIG_REGISTRY=http://your-internal-npm-registry
 export OPENCODE_TEST_HOME=/path/to/lsp-storage
 ```
 
+### 配置本地 LLM 环境变量
+
+```bash
+# Ollama 本地模型
+export OLLAMA_HOST="http://localhost:11434"
+
+# 自定义本地模型
+export LOCAL_LLM_API_KEY="your-api-key"
+export LOCAL_LLM_ENDPOINT="http://localhost:8080/v1"
+
+# Privatemode AI
+export PRIVATEMODE_API_KEY="your-api-key"
+export PRIVATEMODE_ENDPOINT="http://privatemode-server:8080/v1"
+```
+
 ---
 
 ## 完整配置示例
 
-### opencode.json（离线环境配置）
+### 示例 1：使用 Ollama 本地模型（推荐）
 
 ```json
 {
   "$schema": "./config.json",
   "lsp": {
-    "pyright": {
-      "disabled": false
-    },
-    "typescript": {
-      "disabled": false
-    },
-    "jdtls": {
-      "disabled": false
-    },
-    "eslint": {
-      "disabled": true
-    },
-    "rust": {
-      "disabled": false
-    },
-    "lua-ls": {
-      "disabled": false
+    "pyright": { "disabled": false },
+    "typescript": { "disabled": false },
+    "jdtls": { "disabled": false },
+    "eslint": { "disabled": true },
+    "rust": { "disabled": false },
+    "lua-ls": { "disabled": false }
+  },
+  "llm": [
+    {
+      "provider": "ollama",
+      "model": "qwen2.5-coder:14b",
+      "baseURL": "http://localhost:11434/v1",
+      "apiKey": "ollama"
     }
+  ]
+}
+```
+
+### 示例 2：使用自定义 Provider 配置
+
+```json
+{
+  "$schema": "./config.json",
+  "lsp": {
+    "pyright": { "disabled": false },
+    "typescript": { "disabled": false },
+    "jdtls": { "disabled": false }
   },
   "provider": {
-    "local": {
-      "api": "http://internal-llm-server:8080/v1",
-      "key": "{env:LOCAL_LLM_API_KEY}"
+    "internal-llm": {
+      "name": "Internal LLM Server",
+      "npm": "@ai-sdk/openai-compatible",
+      "env": ["INTERNAL_API_KEY"],
+      "models": {
+        "deepseek-coder": {
+          "name": "DeepSeek Coder",
+          "tool_call": true,
+          "limit": {
+            "context": 64000,
+            "output": 8192
+          }
+        }
+      },
+      "options": {
+        "apiKey": "{env:INTERNAL_API_KEY}",
+        "baseURL": "http://internal-llm.corp.local:8080/v1"
+      }
     }
   },
-  "model": "local:qwen2.5-coder"
+  "model": "internal-llm:deepseek-coder"
+}
+```
+
+### 示例 3：多模型配置（带 fallback）
+
+```json
+{
+  "$schema": "./config.json",
+  "llm": [
+    {
+      "provider": "ollama",
+      "model": "qwen2.5-coder:14b",
+      "baseURL": "http://localhost:11434/v1",
+      "apiKey": "ollama"
+    },
+    {
+      "provider": "openai-compatible",
+      "model": "backup-model",
+      "baseURL": "http://backup-llm.corp.local:8080/v1",
+      "apiKey": "{env:BACKUP_API_KEY}"
+    }
+  ],
+  "agent": {
+    "default": {
+      "model": "ollama:qwen2.5-coder:14b"
+    }
+  }
 }
 ```
 
@@ -269,10 +489,13 @@ export OPENCODE_DISABLE_LSP_DOWNLOAD=true
 # 2. 配置本地 npm registry（如需安装新 LSP）
 export BUN_CONFIG_REGISTRY=http://internal-npm-mirror:4873
 
-# 3. 配置本地模型 API
-export LOCAL_LLM_API_KEY="your-internal-key"
+# 3. 配置 Ollama（如果使用）
+export OLLAMA_HOST="http://localhost:11434"
 
-# 4. 启动 OpenCode
+# 4. 配置内部 LLM API 密钥（如果使用）
+export INTERNAL_API_KEY="your-internal-key"
+
+# 5. 启动 OpenCode
 opencode "$@"
 ```
 
@@ -287,10 +510,13 @@ $env:OPENCODE_DISABLE_LSP_DOWNLOAD = "true"
 # 2. 配置本地 npm registry
 $env:BUN_CONFIG_REGISTRY = "http://internal-npm-mirror:4873"
 
-# 3. 配置本地模型 API
-$env:LOCAL_LLM_API_KEY = "your-internal-key"
+# 3. 配置 Ollama
+$env:OLLAMA_HOST = "http://localhost:11434"
 
-# 4. 启动 OpenCode
+# 4. 配置内部 LLM API 密钥
+$env:INTERNAL_API_KEY = "your-internal-key"
+
+# 5. 启动 OpenCode
 opencode $args
 ```
 
@@ -325,14 +551,41 @@ opencode $args
 
 1. 检查网络连通性
    ```bash
+   # 测试 Ollama
+   curl http://localhost:11434/api/tags
+   
+   # 测试自定义端点
    curl http://internal-llm-server:8080/v1/models
    ```
 
 2. 检查 API 密钥配置
+   ```bash
+   echo $INTERNAL_API_KEY
+   ```
+
 3. 查看 OpenCode 日志
    ```bash
    opencode --print-logs --log-level DEBUG
    ```
+
+4. 验证模型配置格式
+   ```bash
+   opencode config validate
+   ```
+
+### Ollama 连接问题
+
+1. 检查 Ollama 服务是否运行
+   ```bash
+   ollama list
+   ```
+
+2. 检查模型是否已下载
+   ```bash
+   ollama pull qwen2.5-coder:14b
+   ```
+
+3. 检查防火墙设置（确保端口 11434 可访问）
 
 ---
 
@@ -340,6 +593,8 @@ opencode $args
 
 - [LSP 配置指南](./LSP-CONFIG.zh-CN.md)
 - [OpenCode 官方文档](https://opencode.ai/docs)
+- [Ollama 官方文档](https://github.com/ollama/ollama)
+- [AI SDK 文档](https://sdk.vercel.ai/docs)
 
 ---
 
