@@ -3,6 +3,15 @@ import path from "path"
 import { pathToFileURL } from "url"
 import os from "os"
 import z from "zod"
+import { fileURLToPath } from "url"
+
+// Get the directory of the current module
+const __filename = fileURLToPath(import.meta.url)
+const __dirname = path.dirname(__filename)
+
+// Local schema path - bundled with the package
+export const SCHEMA_PATH = path.join(__dirname, "../../schemas/config.json")
+export const SCHEMA_URL = "https://opencode.ai/config.json"
 import { Filesystem } from "../util/filesystem"
 import { ModelsDev } from "../provider/models"
 import { mergeDeep, pipe, unique } from "remeda"
@@ -1186,7 +1195,7 @@ export namespace Config {
         .then(async (mod) => {
           const { provider, model, ...rest } = mod.default
           if (provider && model) result.model = `${provider}/${model}`
-          result["$schema"] = "https://opencode.ai/config.json"
+          result["$schema"] = SCHEMA_URL
           result = mergeDeep(result, rest)
           await Bun.write(path.join(Global.Path.config, "config.json"), JSON.stringify(result, null, 2))
           await fs.unlink(legacy)
@@ -1279,9 +1288,9 @@ export namespace Config {
     const parsed = Info.safeParse(data)
     if (parsed.success) {
       if (!parsed.data.$schema) {
-        parsed.data.$schema = "https://opencode.ai/config.json"
+        parsed.data.$schema = SCHEMA_URL
         // Write the $schema to the original text to preserve variables like {env:VAR}
-        const updated = original.replace(/^\s*\{/, '{\n  "$schema": "https://opencode.ai/config.json",')
+        const updated = original.replace(/^\s*\{/, `{\n  "$schema": "${SCHEMA_URL}",`)
         await Bun.write(configFilepath, updated).catch(() => {})
       }
       const data = parsed.data
