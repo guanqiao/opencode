@@ -718,6 +718,72 @@ export namespace Provider {
 
     log.info("init")
 
+    // Process simplified LLM configurations first
+    if (config.llm && config.llm.length > 0) {
+      for (const llm of config.llm) {
+        const providerID = `llm-${llm.name.toLowerCase().replace(/[^a-z0-9]/g, "-")}`
+        
+        // Read CA certificate
+        const caCertPath = llm.caCert.startsWith("~") 
+          ? llm.caCert.replace("~", os.homedir()) 
+          : llm.caCert
+        const caCert = await Bun.file(caCertPath).text().catch(() => {
+          log.error("Failed to read CA certificate", { path: caCertPath, llm: llm.name })
+          return undefined
+        })
+
+        if (!caCert) {
+          log.error("CA certificate is required but not found, skipping LLM", { name: llm.name })
+          continue
+        }
+
+        const provider: Info = {
+          id: providerID,
+          name: llm.name,
+          env: [],
+          source: "llm",
+          options: {
+            apiKey: llm.apiKey,
+            baseURL: llm.endpoint,
+            caCert: caCert,
+          },
+          models: {
+            [llm.model]: {
+              id: llm.model,
+              providerID,
+              api: {
+                id: llm.model,
+                url: llm.endpoint,
+                npm: "@ai-sdk/openai-compatible",
+              },
+              name: llm.model,
+              status: "active",
+              capabilities: {
+                temperature: true,
+                reasoning: false,
+                attachment: false,
+                toolcall: true,
+                input: { text: true, audio: false, image: false, video: false, pdf: false },
+                output: { text: true, audio: false, image: false, video: false, pdf: false },
+                interleaved: false,
+              },
+              cost: { input: 0, output: 0, cache: { read: 0, write: 0 } },
+              options: {},
+              limit: { context: 128000, output: 4096 },
+              headers: {},
+              family: "",
+              release_date: "",
+              variants: {},
+            },
+          },
+        }
+        
+        database[providerID] = provider
+        providers[providerID] = provider
+        log.info("loaded LLM configuration", { name: llm.name, providerID })
+      }
+    }
+
     const configProviders = Object.entries(config.provider ?? {})
 
     // Add GitHub Copilot Enterprise provider that inherits from GitHub Copilot
@@ -1038,11 +1104,20 @@ export namespace Provider {
           }
         }
 
-        return fetchFn(input, {
+        // Use custom CA certificate if provided (for LLM configurations)
+        const fetchOptions: any = {
           ...opts,
           // @ts-ignore see here: https://github.com/oven-sh/bun/issues/16682
           timeout: false,
-        })
+        }
+        
+        if (options["caCert"]) {
+          fetchOptions.tls = {
+            ca: options["caCert"],
+          }
+        }
+
+        return fetchFn(input, fetchOptions)
       }
 
       const bundledFn = BUNDLED_PROVIDERS[model.api.npm]

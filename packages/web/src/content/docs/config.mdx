@@ -241,6 +241,53 @@ You can configure the providers and models you want to use in your OpenCode conf
 
 The `small_model` option configures a separate model for lightweight tasks like title generation. By default, OpenCode tries to use a cheaper model if one is available from your provider, otherwise it falls back to your main model.
 
+#### Simplified LLM Configuration
+
+For easier configuration, you can use the simplified `llm` array to configure multiple LLM endpoints. Each LLM requires a CA certificate for secure connections.
+
+```json title="opencode.json"
+{
+  "$schema": "https://opencode.ai/config.json",
+  "llm": [
+    {
+      "name": "OpenAI GPT-4",
+      "endpoint": "https://api.openai.com/v1",
+      "apiKey": "sk-your-api-key",
+      "model": "gpt-4",
+      "caCert": "~/.certs/openai-ca.pem"
+    },
+    {
+      "name": "Anthropic Claude",
+      "endpoint": "https://api.anthropic.com",
+      "apiKey": "sk-ant-api-key",
+      "model": "claude-3-opus-20240229",
+      "caCert": "~/.certs/anthropic-ca.pem"
+    },
+    {
+      "name": "Local Ollama",
+      "endpoint": "http://localhost:11434",
+      "apiKey": "",
+      "model": "llama2",
+      "caCert": "~/.certs/local-ca.pem"
+    }
+  ]
+}
+```
+
+Each LLM configuration requires:
+
+- `name` - Display name for this LLM configuration
+- `endpoint` - API endpoint URL
+- `apiKey` - API key for authentication
+- `model` - Model name
+- `caCert` - Path to CA certificate file (required for all connections)
+
+:::note
+The `caCert` path supports `~` expansion to the user's home directory.
+:::
+
+The `llm` configuration takes precedence over traditional `provider` configuration. Models configured via `llm` will appear in the `opencode models` command output with provider IDs prefixed with `llm-`.
+
 Provider options can include `timeout` and `setCacheKey`:
 
 ```json title="opencode.json"

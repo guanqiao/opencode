@@ -905,6 +905,21 @@ export namespace Config {
   })
   export type Layout = z.infer<typeof Layout>
 
+  // Simplified LLM configuration with mandatory CA certificate
+  export const LLM = z
+    .object({
+      name: z.string().describe("Display name for this LLM configuration"),
+      endpoint: z.string().describe("API endpoint URL"),
+      apiKey: z.string().describe("API key for authentication"),
+      model: z.string().describe("Model name"),
+      caCert: z.string().describe("Path to CA certificate file"),
+    })
+    .strict()
+    .meta({
+      ref: "LLMConfig",
+    })
+  export type LLM = z.infer<typeof LLM>
+
   export const Provider = ModelsDev.Provider.partial()
     .extend({
       whitelist: z.array(z.string()).optional(),
@@ -1037,6 +1052,10 @@ export namespace Config {
         .catchall(Agent)
         .optional()
         .describe("Agent configuration, see https://opencode.ai/docs/agents"),
+      llm: z
+        .array(LLM)
+        .optional()
+        .describe("Simplified LLM configurations with mandatory CA certificates"),
       provider: z
         .record(z.string(), Provider)
         .optional()
