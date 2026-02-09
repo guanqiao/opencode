@@ -17,6 +17,10 @@ export namespace ShareNext {
 
   const disabled = process.env["OPENCODE_DISABLE_SHARE"] === "true" || process.env["OPENCODE_DISABLE_SHARE"] === "1"
 
+  export function isDisabled(): boolean {
+    return disabled
+  }
+
   export async function init() {
     if (disabled) return
     Bus.subscribe(Session.Event.Updated, async (evt) => {
@@ -66,7 +70,10 @@ export namespace ShareNext {
   }
 
   export async function create(sessionID: string) {
-    if (disabled) return { id: "", url: "", secret: "" }
+    if (disabled) {
+      log.info("share is disabled, skipping create", { sessionID })
+      return { id: "", url: "", secret: "" }
+    }
     log.info("creating share", { sessionID })
     const result = await fetch(`${await url()}/api/share`, {
       method: "POST",

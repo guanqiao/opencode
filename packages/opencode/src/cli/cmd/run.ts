@@ -376,6 +376,13 @@ export const RunCommand = cmd({
     async function share(sdk: OpencodeClient, sessionID: string) {
       const cfg = await sdk.config.get()
       if (!cfg.data) return
+
+      // 检查分享是否被禁用
+      if (cfg.data.share === "disabled") {
+        log.info("sharing is disabled in configuration")
+        return
+      }
+
       if (cfg.data.share !== "auto" && !Flag.OPENCODE_AUTO_SHARE && !args.share) return
       const res = await sdk.session.share({ sessionID }).catch((error) => {
         if (error instanceof Error && error.message.includes("disabled")) {

@@ -230,16 +230,21 @@ export namespace Session {
       info: result,
     })
     const cfg = await Config.get()
-    if (!result.parentID && (Flag.OPENCODE_AUTO_SHARE || cfg.share === "auto"))
+    // 当 share 为 disabled 时，跳过自动分享
+    if (!result.parentID && cfg.share !== "disabled" && (Flag.OPENCODE_AUTO_SHARE || cfg.share === "auto")) {
       share(result.id)
         .then((share) => {
-          update(result.id, (draft) => {
-            draft.share = share
-          })
+          // 只有当有 URL 时才更新会话分享状态
+          if (share.url) {
+            update(result.id, (draft) => {
+              draft.share = share
+            })
+          }
         })
         .catch(() => {
           // Silently ignore sharing errors during session creation
         })
+    }
     Bus.publish(Event.Updated, {
       info: result,
     })

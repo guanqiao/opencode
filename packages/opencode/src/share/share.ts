@@ -72,8 +72,15 @@ export namespace Share {
 
   const disabled = process.env["OPENCODE_DISABLE_SHARE"] === "true" || process.env["OPENCODE_DISABLE_SHARE"] === "1"
 
+  export function isDisabled(): boolean {
+    return disabled
+  }
+
   export async function create(sessionID: string) {
-    if (disabled) return { url: "", secret: "" }
+    if (disabled) {
+      log.info("share is disabled, skipping create", { sessionID })
+      return { url: "", secret: "" }
+    }
     return fetch(`${URL}/share_create`, {
       method: "POST",
       body: JSON.stringify({ sessionID: sessionID }),

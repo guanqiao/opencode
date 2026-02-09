@@ -16,6 +16,7 @@ import { Log } from "../../util/log"
 import { PermissionNext } from "@/permission/next"
 import { errors } from "../error"
 import { lazy } from "../../util/lazy"
+import { Config } from "../../config/config"
 
 const log = Log.create({ service: "server" })
 
@@ -409,6 +410,14 @@ export const SessionRoutes = lazy(() =>
       ),
       async (c) => {
         const sessionID = c.req.valid("param").sessionID
+        const cfg = await Config.get()
+
+        // 当分享被禁用时，直接返回会话信息而不执行分享
+        if (cfg.share === "disabled") {
+          const session = await Session.get(sessionID)
+          return c.json(session)
+        }
+
         await Session.share(sessionID)
         const session = await Session.get(sessionID)
         return c.json(session)
