@@ -5,10 +5,18 @@ import z from "zod"
 import { Installation } from "../installation"
 import { Flag } from "../flag/flag"
 import { lazy } from "@/util/lazy"
+import { fileURLToPath } from "url"
 
 // Try to import bundled snapshot (generated at build time)
 // Falls back to undefined in dev mode when snapshot doesn't exist
 /* @ts-ignore */
+
+// Get the directory of the current module
+const __filename = fileURLToPath(import.meta.url)
+const __dirname = path.dirname(__filename)
+
+// Local models data path - bundled with the package
+const LOCAL_MODELS_PATH = path.join(__dirname, "../../schemas/models.dev.json")
 
 export namespace ModelsDev {
   const log = Log.create({ service: "models.dev" })
@@ -85,17 +93,36 @@ export namespace ModelsDev {
   }
 
   export const Data = lazy(async () => {
-    const file = Bun.file(Flag.OPENCODE_MODELS_PATH ?? filepath)
-    const result = await file.json().catch(() => {})
-    if (result) return result
+    // 1. Try user-specified path first
+    if (Flag.OPENCODE_MODELS_PATH) {
+      const file = Bun.file(Flag.OPENCODE_MODELS_PATH)
+      const result = await file.json().catch(() => {})
+      if (result) return result
+    }
+
+    // 2. Try local bundled models
+    const localFile = Bun.file(LOCAL_MODELS_PATH)
+    const localResult = await localFile.json().catch(() => {})
+    if (localResult) {
+      log.info("loaded bundled models data", { path: LOCAL_MODELS_PATH })
+      return localResult
+    }
+
+    // 3. Try cached models
+    const cacheFile = Bun.file(filepath)
+    const cacheResult = await cacheFile.json().catch(() => {})
+    if (cacheResult) return cacheResult
+
+    // 4. Try build-time snapshot
     // @ts-ignore
     const snapshot = await import("./models-snapshot")
       .then((m) => m.snapshot as Record<string, unknown>)
       .catch(() => undefined)
     if (snapshot) return snapshot
-    if (Flag.OPENCODE_DISABLE_MODELS_FETCH) return {}
-    const json = await fetch(`${url()}/api.json`).then((x) => x.text())
-    return JSON.parse(json)
+
+    // 5. Return empty object as fallback
+    log.warn("no models data available, returning empty object")
+    return {}
   })
 
   export async function get() {
@@ -104,30 +131,8 @@ export namespace ModelsDev {
   }
 
   export async function refresh() {
-    const file = Bun.file(filepath)
-    const result = await fetch(`${url()}/api.json`, {
-      headers: {
-        "User-Agent": Installation.USER_AGENT,
-      },
-      signal: AbortSignal.timeout(10 * 1000),
-    }).catch((e) => {
-      log.error("Failed to fetch models.dev", {
-        error: e,
-      })
-    })
-    if (result && result.ok) {
-      await Bun.write(file, await result.text())
-      ModelsDev.Data.reset()
-    }
+    // Skip network fetch - use local bundled data only
+    log.info("skipping network refresh, using local bundled models data")
+    ModelsDev.Data.reset()
   }
-}
-
-if (!Flag.OPENCODE_DISABLE_MODELS_FETCH) {
-  ModelsDev.refresh()
-  setInterval(
-    async () => {
-      await ModelsDev.refresh()
-    },
-    60 * 1000 * 60,
-  ).unref()
 }
